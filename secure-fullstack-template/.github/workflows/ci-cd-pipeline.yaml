@@ -1,81 +1,110 @@
-name: Full Stack CI/CD Pipeline
+name: Full‑Stack CI/CD Pipeline
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   pull_request:
-    branches:
-      - main
+    branches: [ main ]
 
 jobs:
-  # Node.js Backend CI
+  # ─── Node.js Backend ───────────────────────────────────────────────────────
   node-ci:
+    name: Node.js API CI
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: secure-fullstack-template/secure-fullstack-template/backend/node-api  # Updated path for Node.js backend
+        working-directory: secure-fullstack-template/secure-fullstack-template/backend/node-api
     steps:
       - uses: actions/checkout@v3
+
       - name: Set up Node.js
         uses: actions/setup-node@v3
-        with:
-          node-version: 18
+        with: { node-version: '18' }
+
       - name: Install dependencies
         run: |
-          echo "Current directory: $(pwd)"   # Print the working directory
-          ls -la                            # List files in the directory to verify package.json exists
-          npm install                       # Install dependencies
-      - name: Start Node.js application
-        run: npm start
+          npm install
 
-  # Python Backend CI
+      - name: Run tests
+        run: |
+          npm test
+
+  # ─── Python (Flask) Backend ──────────────────────────────────────────────
   python-ci:
+    name: Python (Flask) API CI
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: secure-fullstack-template/secure-fullstack-template/backend/python-api  # Updated path for Python backend
+        working-directory: secure-fullstack-template/secure-fullstack-template/backend/flask-api
     steps:
       - uses: actions/checkout@v3
+
       - name: Set up Python
         uses: actions/setup-python@v4
-        with:
-          python-version: '3.x'
+        with: { python-version: '3.10' }
+
       - name: Install dependencies
         run: |
           python -m venv venv
           source venv/bin/activate
-          pip install -r requirements.txt  # Ensure requirements.txt is in the correct directory
-      - name: Run Python application
-        run: |
-          python app.py  # Adjust to your entry point
+          pip install -r requirements.txt
 
-  # React Frontend CI
+      - name: Run tests
+        run: |
+          source venv/bin/activate
+          pytest
+
+  # ─── React Frontend ───────────────────────────────────────────────────────
   react-ci:
+    name: React Frontend CI
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: secure-fullstack-template/secure-fullstack-template/frontend  # Updated path for React frontend
+        working-directory: secure-fullstack-template/secure-fullstack-template/frontend
     steps:
       - uses: actions/checkout@v3
+
       - name: Set up Node.js
         uses: actions/setup-node@v3
+        with: { node-version: '18' }
+
+      - name: Cache node_modules
+        uses: actions/cache@v3
         with:
-          node-version: 18
-      - name: Install and build React
+          path: node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+
+      - name: Install & build
         run: |
           npm install
-          npm run build  # This builds the React app
+          npm run build
 
-  # Security Scan CI
+      - name: Run tests
+        run: |
+          npm test -- --watchAll=false
+
+  # ─── Security Scan (Semgrep + Bandit) ────────────────────────────────────
   security-scan:
+    name: Security Scan
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: secure-fullstack-template/secure-fullstack-template  # Root of the repository
+        working-directory: secure-fullstack-template/secure-fullstack-template
     steps:
       - uses: actions/checkout@v3
-      - name: Run security scan (Snyk)
+
+      - name: Install Semgrep
         run: |
-          npm install -g snyk
-          snyk test  # Ensure you have Snyk configured in your project
+          pip install semgrep
+
+      - name: Run Semgrep
+        run: |
+          semgrep --config=auto --exclude venv --exclude node_modules .
+
+      - name: Install Bandit
+        run: |
+          pip install bandit
+
+      - name: Run Bandit on Flask API
+        run: |
+          bandit -r backend/flask-api -ll
