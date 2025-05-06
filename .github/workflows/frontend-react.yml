@@ -16,5 +16,6 @@ jobs:
           node-version: 18
       - name: Install dependencies
         run: npm install
-      - name: Start application
-        run: npm start
+      - name: Start application with timeout
+        run: timeout 60s npm start
+          working-directory:secure-fullstack-template/backend/node-api
