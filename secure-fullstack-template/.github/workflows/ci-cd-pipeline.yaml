@@ -1,0 +1,81 @@
+name: Full Stack CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  # Node.js Backend CI
+  node-ci:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: secure-fullstack-template/secure-fullstack-template/backend/node-api  # Updated path for Node.js backend
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+      - name: Install dependencies
+        run: |
+          echo "Current directory: $(pwd)"   # Print the working directory
+          ls -la                            # List files in the directory to verify package.json exists
+          npm install                       # Install dependencies
+      - name: Start Node.js application
+        run: npm start
+
+  # Python Backend CI
+  python-ci:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: secure-fullstack-template/secure-fullstack-template/backend/python-api  # Updated path for Python backend
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+      - name: Install dependencies
+        run: |
+          python -m venv venv
+          source venv/bin/activate
+          pip install -r requirements.txt  # Ensure requirements.txt is in the correct directory
+      - name: Run Python application
+        run: |
+          python app.py  # Adjust to your entry point
+
+  # React Frontend CI
+  react-ci:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: secure-fullstack-template/secure-fullstack-template/frontend  # Updated path for React frontend
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+      - name: Install and build React
+        run: |
+          npm install
+          npm run build  # This builds the React app
+
+  # Security Scan CI
+  security-scan:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: secure-fullstack-template/secure-fullstack-template  # Root of the repository
+    steps:
+      - uses: actions/checkout@v3
+      - name: Run security scan (Snyk)
+        run: |
+          npm install -g snyk
+          snyk test  # Ensure you have Snyk configured in your project
