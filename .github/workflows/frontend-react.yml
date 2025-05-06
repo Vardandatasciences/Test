@@ -1,20 +1,20 @@
-name: React Frontend CI
+name: Node.js Backend CI
 
 on: [push, pull_request]
 
 jobs:
-  react-ci:
+  node-ci:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: frontend
+        working-directory: secure-fullstack-template/backend/node-api
     steps:
       - uses: actions/checkout@v3
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
           node-version: 18
-      - name: Install and build
-        run: |
-          npm install
-          npm run build
+      - name: Install dependencies
+        run: npm install
+      - name: Start application
+        run: npm start
