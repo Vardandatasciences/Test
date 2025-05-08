@@ -72,6 +72,6 @@ jobs:
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
           SLACK_MESSAGE: |
-            ✅ Node.js CI workflow completed for *${{ github.repository }}*
+            Node.js CI workflow completed for *${{ github.repository }}*
             • Branch: `${{ github.ref_name }}`
             • Triggered by: `${{ github.actor }}`
