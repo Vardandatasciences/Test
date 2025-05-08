@@ -1,0 +1,77 @@
+name: Node.js Backend CI
+
+on: [push, pull_request]
+
+jobs:
+  node-ci:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: secure-fullstack-template/backend/node-api
+
+    steps:
+      # Step 1: Checkout Code
+      - uses: actions/checkout@v3
+
+      # Step 2: Set up Node.js
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      # Step 3: Install dependencies
+      - name: Install dependencies
+        run: npm install
+
+      # Step 4: Run Tests
+      - name: Run tests
+        run: npm test
+
+      # Step 5: Code Coverage Upload (Codecov)
+      - name: Code Coverage Upload (Codecov)
+        uses: codecov/codecov-action@v3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      # Step 6: Run Snyk Security Scan
+      - name: Run Snyk Security Scan
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: test
+
+      # Step 7: Start Application (Background)
+      - name: Start Application (Background)
+        run: |
+          nohup npm start > app.log 2>&1 &  # Logs redirected to app.log
+          sleep 10  # Optional: Wait for a short time for the app to start
+
+      # Step 8: Upload App Logs as Artifacts (Optional Report)
+      - name: Upload Application Logs
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: app-logs
+          path: app.log
+
+      # Step 9: Set GitHub Status (Success/Failure)
+      - name: Set GitHub Status
+        run: |
+          if [ ${{ job.status }} == 'success' ]; then
+            echo "CI Success!"
+          else
+            echo "CI Failed!"
+            exit 1
+          fi
+
+      # Step 10: Send Slack Notification
+      - name: Send Slack Notification
+        if: always()
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_MESSAGE: |
+            ✅ Node.js CI workflow completed for *${{ github.repository }}*
+            • Branch: `${{ github.ref_name }}`
+            • Triggered by: `${{ github.actor }}`
