@@ -1,0 +1,40 @@
+name: Node.js Backend CI
+
+on: [push, pull_request]
+
+jobs:
+  node-ci:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: secure-fullstack-template/backend/node-api
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run Tests
+        run: npm test
+
+      - name: Start application (background)
+        run: |
+          nohup npm start > app.log 2>&1 &
+          sleep 5  # Wait for app to start
+
+      - name: Health check (API ping)
+        run: |
+          curl --fail http://localhost:3000 || exit 1
+
+      - name: Upload application log
+        uses: actions/upload-artifact@v3
+        with:
+          name: node-backend-log
+          path: secure-fullstack-template/backend/node-api/app.log
