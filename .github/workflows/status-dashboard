@@ -1,0 +1,117 @@
+name: CI Status Dashboard
+on:
+  schedule:
+    - cron: '0 9,17 * * 1-5'  # Run twice daily on weekdays (9am and 5pm)
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  generate-dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      
+      - name: Fetch workflow status
+        id: fetch-status
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const date = new Date();
+            date.setHours(date.getHours() - 24);
+            const since = date.toISOString();
+            
+            const workflows = await github.rest.actions.listWorkflowRunsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              created: `>${since}`
+            });
+            
+            // Process data for dashboard
+            const summary = {
+              total: workflows.data.total_count,
+              success: workflows.data.workflow_runs.filter(run => run.conclusion === 'success').length,
+              failure: workflows.data.workflow_runs.filter(run => run.conclusion === 'failure').length,
+              cancelled: workflows.data.workflow_runs.filter(run => run.conclusion === 'cancelled').length,
+              workflows: {}
+            };
+            
+            // Group by workflow
+            workflows.data.workflow_runs.forEach(run => {
+              if (!summary.workflows[run.name]) {
+                summary.workflows[run.name] = {
+                  total: 0,
+                  success: 0,
+                  failure: 0,
+                  cancelled: 0
+                };
+              }
+              
+              summary.workflows[run.name].total += 1;
+              if (run.conclusion === 'success') summary.workflows[run.name].success += 1;
+              if (run.conclusion === 'failure') summary.workflows[run.name].failure += 1;
+              if (run.conclusion === 'cancelled') summary.workflows[run.name].cancelled += 1;
+            });
+            
+            console.log(`## CI Status Summary for ${context.repo.owner}/${context.repo.repo}`);
+            console.log(`### Last 24 Hours`);
+            console.log(`- Total runs: ${summary.total}`);
+            console.log(`- Success: ${summary.success} (${summary.total ? Math.round(summary.success/summary.total*100) : 0}%)`);
+            console.log(`- Failures: ${summary.failure} (${summary.total ? Math.round(summary.failure/summary.total*100) : 0}%)`);
+            console.log(`- Cancelled: ${summary.cancelled} (${summary.total ? Math.round(summary.cancelled/summary.total*100) : 0}%)`);
+            
+            console.log(`\n### Workflow Details`);
+            for (const [name, stats] of Object.entries(summary.workflows)) {
+              console.log(`\n#### ${name}`);
+              console.log(`- Total runs: ${stats.total}`);
+              console.log(`- Success: ${stats.success} (${stats.total ? Math.round(stats.success/stats.total*100) : 0}%)`);
+              console.log(`- Failures: ${stats.failure} (${stats.total ? Math.round(stats.failure/stats.total*100) : 0}%)`);
+            }
+            
+            return summary;
+      
+      - name: Create dashboard report
+        run: |
+          echo "${{ steps.fetch-status.outputs.result }}" > dashboard-report.json
+      
+      - name: Create GitHub Issue on failures
+        if: fromJSON(steps.fetch-status.outputs.result).failure > 0
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const summary = JSON.parse(fs.readFileSync('dashboard-report.json', 'utf8'));
+            
+            // Create a formatted issue body
+            let body = `## CI Pipeline Status Alert\n\n`;
+            body += `${summary.failure} workflow failures detected in the last 24 hours\n\n`;
+            
+            body += `### Failed Workflows:\n`;
+            for (const [name, stats] of Object.entries(summary.workflows)) {
+              if (stats.failure > 0) {
+                body += `- ${name}: ${stats.failure} failures (${Math.round(stats.failure/stats.total*100)}%)\n`;
+              }
+            }
+            
+            body += `\n[View all workflows](https://github.com/${context.repo.owner}/${context.repo.repo}/actions)`;
+            
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 CI Status Alert: ${summary.failure} failures in the last 24h`,
+              body: body,
+              labels: ['ci-alert', 'monitoring']
+            });
+      
+      - name: Upload dashboard as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ci-dashboard
+          path: dashboard-report.json
+          retention-days: 30
