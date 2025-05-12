@@ -1,0 +1,134 @@
+name: Workflow Log Analyzer
+on:
+  workflow_run:
+    workflows: ['*']  # Run when any workflow completes
+    types:
+      - completed
+
+jobs:
+  analyze-logs:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    steps:
+      - name: Download logs
+        uses: actions/github-script@v6
+        id: download-logs
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            // Create logs directory
+            fs.mkdirSync('logs', { recursive: true });
+            
+            // Get workflow run logs
+            const logData = await github.rest.actions.downloadWorkflowRunLogs({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.payload.workflow_run.id
+            });
+            
+            // Save logs as artifact
+            const response = await fetch(logData.url);
+            const buffer = await response.arrayBuffer();
+            fs.writeFileSync(path.join('logs', 'workflow.zip'), Buffer.from(buffer));
+            
+            return {
+              workflow_name: context.payload.workflow_run.name,
+              run_id: context.payload.workflow_run.id,
+              conclusion: context.payload.workflow_run.conclusion
+            };
+      
+      - name: Extract logs
+        run: |
+          unzip -o logs/workflow.zip -d logs/extracted
+          
+      - name: Analyze logs for common errors
+        id: analyze
+        run: |
+          # Check for common error patterns
+          echo "### Error Analysis" > error-report.md
+          echo "" >> error-report.md
+          
+          # npm errors
+          NPM_ERRORS=$(grep -c "npm ERR!" logs/extracted/* || echo "0")
+          echo "- NPM Errors: $NPM_ERRORS" >> error-report.md
+          
+          # Connection timeouts
+          TIMEOUT_ERRORS=$(grep -c -E "timeout|timed? out" logs/extracted/* || echo "0")
+          echo "- Timeout Errors: $TIMEOUT_ERRORS" >> error-report.md
+          
+          # Permission issues
+          PERMISSION_ERRORS=$(grep -c -E "permission denied|EACCES" logs/extracted/* || echo "0")
+          echo "- Permission Errors: $PERMISSION_ERRORS" >> error-report.md
+          
+          # Test failures
+          TEST_FAILURES=$(grep -c -E "test.*failed|failing test" logs/extracted/* || echo "0")
+          echo "- Test Failures: $TEST_FAILURES" >> error-report.md
+          
+          # Memory issues
+          MEMORY_ERRORS=$(grep -c -E "out of memory|memory limit" logs/extracted/* || echo "0")
+          echo "- Memory Issues: $MEMORY_ERRORS" >> error-report.md
+          
+          # Extract failing test names (if applicable)
+          echo "" >> error-report.md
+          echo "### Failed Tests" >> error-report.md
+          grep -E "FAIL.*test|test.*failed" logs/extracted/* | sed 's/^.*FAIL/FAIL/' >> error-report.md
+          
+          # Save summary counts for issue creation
+          echo "NPM_ERRORS=$NPM_ERRORS" >> $GITHUB_ENV
+          echo "TIMEOUT_ERRORS=$TIMEOUT_ERRORS" >> $GITHUB_ENV
+          echo "TEST_FAILURES=$TEST_FAILURES" >> $GITHUB_ENV
+          
+          cat error-report.md
+          
+      - name: Create GitHub Issue with analysis
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const errorReport = fs.readFileSync('error-report.md', 'utf8');
+            const workflowInfo = JSON.parse('${{ steps.download-logs.outputs.result }}');
+            
+            let errorType = "Unknown Error";
+            let priority = "P3";
+            
+            // Determine error type and priority
+            if (${{ env.TEST_FAILURES }} > 0) {
+              errorType = "Test Failures";
+              priority = "P2";
+            } else if (${{ env.NPM_ERRORS }} > 0) {
+              errorType = "NPM Dependencies";
+              priority = "P3";
+            } else if (${{ env.TIMEOUT_ERRORS }} > 0) {
+              errorType = "Connection Timeouts";
+              priority = "P2";
+            }
+            
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[${priority}] ${errorType} in workflow "${workflowInfo.workflow_name}"`,
+              body: `## Workflow Failure Analysis
+              
+              Workflow: [${workflowInfo.workflow_name}](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${workflowInfo.run_id})
+              Run ID: ${workflowInfo.run_id}
+              Status: ${workflowInfo.conclusion}
+              
+              ${errorReport}
+              
+              ### Links
+              - [Workflow Run](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${workflowInfo.run_id})
+              - [Repository](https://github.com/${context.repo.owner}/${context.repo.repo})
+              `,
+              labels: ['ci-failure', errorType.toLowerCase().replace(' ', '-'), priority]
+            });
+      
+      - name: Upload error report as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: error-analysis-${{ github.event.workflow_run.id }}
+          path: error-report.md
+          retention-days: 30
